@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autonomous-bot-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels: {app: autonomous-bot-api}
+  template:
+    metadata:
+      labels: {app: autonomous-bot-api}
+    spec:
+      containers:
+        - name: api
+          image: ghcr.io/your-org/autonomous-bot:latest
+          ports: [{containerPort: 8000}]
+          envFrom: [{secretRef: {name: autonomous-bot-secrets}}]
+          readinessProbe: {httpGet: {path: /health, port: 8000}, initialDelaySeconds: 5}
+          livenessProbe: {httpGet: {path: /health, port: 8000}, initialDelaySeconds: 20}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: autonomous-bot-api
+spec:
+  selector: {app: autonomous-bot-api}
+  ports: [{port: 80, targetPort: 8000}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autonomous-bot-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: autonomous-bot-worker}
+  template:
+    metadata:
+      labels: {app: autonomous-bot-worker}
+    spec:
+      containers:
+        - name: worker
+          image: ghcr.io/your-org/autonomous-bot:latest
+          command: ["celery", "-A", "app.workers.celery_app.celery_app", "worker", "--loglevel=INFO", "-Q", "strategy,publishing"]
+          envFrom: [{secretRef: {name: autonomous-bot-secrets}}]
