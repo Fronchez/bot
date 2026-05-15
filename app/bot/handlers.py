@@ -1,13 +1,15 @@
 """Telegram bot handlers."""
 
 from aiogram import Router
-from aiogram.filters import CommandStart
+from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from sqlalchemy import select
 
 from app.db.session import AsyncSessionFactory
 from app.models.user import TelegramUser
+from app.services.giveaways import GiveawayService
 from app.services.moderation import ModerationService
+from app.services.referrals import ReferralService
 
 router = Router()
 moderation = ModerationService()
@@ -17,6 +19,35 @@ moderation = ModerationService()
 async def start(message: Message) -> None:
     """Welcome new users."""
     await message.answer("Привет! Я AI-бот сообщества: публикую полезное, модерирую и запускаю активности 🤖")
+
+
+@router.message(Command("leaderboard"))
+async def leaderboard(message: Message) -> None:
+    """Show activity leaderboard."""
+    async with AsyncSessionFactory() as session:
+        leaders = await ReferralService(session).leaderboard(limit=10)
+    if not leaders:
+        await message.answer("Пока нет рейтинга активности. Напиши полезный комментарий и стань первым 🏆")
+        return
+    text = "🏆 Рейтинг активности\n\n" + "\n".join(
+        f"{idx}. @{row['username'] or row['telegram_id']} — {row['points']} очков"
+        for idx, row in enumerate(leaders, start=1)
+    )
+    await message.answer(text)
+
+
+@router.message(Command("giveaways"))
+async def active_giveaways(message: Message) -> None:
+    """Show active giveaways."""
+    async with AsyncSessionFactory() as session:
+        giveaways = await GiveawayService(session).active()
+    if not giveaways:
+        await message.answer("Сейчас активных розыгрышей нет. Следи за анонсами 🎁")
+        return
+    await message.answer(
+        "🎁 Активные розыгрыши\n\n"
+        + "\n".join(f"• {giveaway.title}: {giveaway.prize}" for giveaway in giveaways)
+    )
 
 
 @router.message()

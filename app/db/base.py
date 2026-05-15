@@ -11,4 +11,11 @@ class Base(DeclarativeBase):
 from app.models.analytics import AnalyticsEvent  # noqa: E402,F401
 from app.models.content import ContentItem, ContentStatus, ContentType  # noqa: E402,F401
 from app.models.giveaway import Giveaway, GiveawayParticipant  # noqa: E402,F401
+from app.models.growth import (  # noqa: E402,F401
+    ActivityScore,
+    MonetizationCampaign,
+    ReferralEvent,
+    ReferralLink,
+)
+from app.models.memory import MemoryItem, TrendSignal  # noqa: E402,F401
 from app.models.user import ReputationEvent, TelegramUser  # noqa: E402,F401

@@ -1,10 +1,9 @@
 """AI provider abstraction."""
 
+import hashlib
 import json
+import math
 from typing import Any
-
-from openai import AsyncOpenAI
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import get_settings
 
@@ -15,9 +14,12 @@ class AIClient:
     def __init__(self) -> None:
         settings = get_settings()
         self.settings = settings
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
+        self.client = None
+        if settings.openai_api_key:
+            from openai import AsyncOpenAI
 
-    @retry(wait=wait_exponential(min=1, max=20), stop=stop_after_attempt(3))
+            self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+
     async def generate_json(self, prompt: str) -> dict[str, Any]:
         """Generate a JSON object from a prompt, with a deterministic fallback for tests/local dev."""
         if self.client is None:
@@ -47,3 +49,19 @@ class AIClient:
             n=1,
         )
         return response.data[0].url
+
+    async def embed_text(self, text: str, dimensions: int = 64) -> list[float]:
+        """Return embeddings from the provider or a stable local fallback."""
+        if self.client is not None:
+            response = await self.client.embeddings.create(
+                model="text-embedding-3-small",
+                input=text[:8000],
+            )
+            return list(response.data[0].embedding)
+        vector = [0.0] * dimensions
+        for token in text.lower().split():
+            digest = hashlib.sha256(token.encode()).digest()
+            idx = int.from_bytes(digest[:2], "big") % dimensions
+            vector[idx] += 1.0
+        norm = math.sqrt(sum(value * value for value in vector)) or 1.0
+        return [value / norm for value in vector]

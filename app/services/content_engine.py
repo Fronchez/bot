@@ -7,13 +7,16 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.content import ContentItem, ContentStatus
+from app.models.memory import MemoryKind
 from app.repositories.content import ContentRepository
 from app.services.ai_client import AIClient
+from app.services.memory import MemoryService
 from app.services.prompts import (
     CONTENT_STRATEGIST_PROMPT,
     IMAGE_PROMPT_TEMPLATE,
     POST_WRITER_PROMPT,
 )
+from app.services.scheduler import AdaptiveScheduler
 from app.services.trends import TrendService
 
 
@@ -25,6 +28,8 @@ class ContentEngine:
         self.repo = ContentRepository(session)
         self.ai = ai or AIClient()
         self.trends = TrendService()
+        self.memory = MemoryService(session, self.ai)
+        self.scheduler = AdaptiveScheduler(session)
 
     async def generate_next_post(self) -> ContentItem:
         """Create, score and enqueue the next autonomous post."""
@@ -42,7 +47,7 @@ class ContentEngine:
                 title=strategy.get("title", "AI-тренд"),
                 angle=strategy.get("angle", "практическая польза"),
                 format=strategy.get("format", "короткий пост"),
-                style_memory="energetic, useful, ethical, no clickbait lies",
+                style_memory=await self.memory.style_context() or "energetic, useful, ethical, no clickbait lies",
             )
         )
         image_url = await self.ai.generate_image_url(
@@ -58,11 +63,19 @@ class ContentEngine:
             dedupe_hash=self._hash(title, body),
             score=float(strategy.get("score", 0.75) or 0.75),
             status=ContentStatus.SCHEDULED,
-            scheduled_at=self._next_slot(),
-            metadata_json={"strategy": strategy, "post": post},
+            scheduled_at=await self.scheduler.next_slot(),
+            metadata_json={"strategy": strategy, "post": post, "trend_facts": [fact.__dict__ for fact in facts[:5]]},
         )
         try:
-            return await self.repo.add(item)
+            saved = await self.repo.add(item)
+            await self.memory.remember(
+                MemoryKind.CONTENT_LEARNING,
+                key=str(saved.id),
+                text=f"{saved.title}\n{saved.body_markdown[:500]}",
+                score_delta=saved.score,
+                metadata={"source_url": saved.source_url},
+            )
+            return saved
         except IntegrityError:
             await self.session.rollback()
             item.dedupe_hash = self._hash(title, body + datetime.now(UTC).isoformat())

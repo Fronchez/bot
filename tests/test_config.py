@@ -1,5 +1,10 @@
 """Configuration tests."""
 
+import pytest
+
+pytest.importorskip("pydantic")
+pytest.importorskip("pydantic_settings")
+
 from app.core.config import Settings
 
 
